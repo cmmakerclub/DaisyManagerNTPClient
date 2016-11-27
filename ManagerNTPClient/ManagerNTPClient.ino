@@ -1,3 +1,5 @@
+#include <Arduino.h>
+
 
 #include <CMMC_Manager.h>
 #include <ESP8266WiFi.h>
@@ -43,7 +45,7 @@ void setup()
 
 
   delay(2000);
-  ntpTicker.attach_ms(10000, []() {
+  ntpTicker.attach(60000, []() {
     if (isNTPReloaderLocked) return;
     Serial.println("================");
     Serial.printf(" . SET FLAG @[%lu] \r\n", millis());

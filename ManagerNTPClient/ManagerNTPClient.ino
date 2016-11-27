@@ -54,12 +54,14 @@ void setup()
   Serial.print("Local port: ");
   Serial.println(udp.localPort());
 
-
   // ARM NTP Update Timer
-  ntpTicker.attach(60000, []() {
-    if (isNTPReloaderLocked) return;
+  ntpTicker.attach_ms(10*1000, []() {
+    if (isNTPReloaderLocked) {
+      Serial.println("Reloader is LOCKED.");
+      return;
+    }
     Serial.println("================");
-    Serial.printf(" . SET FLAG @[%lu] \r\n", millis());
+    Serial.printf(" . SET FLAG @[%lu] . \r\n", millis());
     Serial.println("================");
     shouldReloadNTPTime = true;
   });
@@ -75,12 +77,13 @@ void loop()
 }
 
 void getNTPTask() {
+  Serial.println("LOCK");
   shouldReloadNTPTime = false;
+  isNTPReloaderLocked = true;
   //get a random server from the pool
   WiFi.hostByName(ntpServerName, timeServerIP);
   int counter = 0;
   while (true) {
-    isNTPReloaderLocked = true;
     sendNTPpacket(timeServerIP); // send an NTP packet to a time server
     // wait to see if a reply is available
     delay(3000);

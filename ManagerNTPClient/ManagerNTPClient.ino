@@ -1,18 +1,20 @@
 #include <Arduino.h>
-
-
 #include <CMMC_Manager.h>
 #include <ESP8266WiFi.h>
 #include <WiFiUdp.h>
 #include <Ticker.h>
+
+#define DEVICE1
 
 /*
  * UDP Header
  */
 
 Ticker ntpTicker;
+Ticker counterDownTicker;
 bool shouldReloadNTPTime = true;
-bool isNTPReloaderLocked = false;
+bool isNTPReloaderLocked = true;
+bool shouldUploadDataToCloud = false;
 
 CMMC_Manager manager(0, LED_BUILTIN);
 unsigned int localPort = 2390;      // local port to listen for UDP packets
@@ -37,6 +39,13 @@ WiFiUDP udp;
 #define LED_vcc   4
 #define LED_gnd   5
 
+uint32_t data_sum = 1;
+uint32_t data_count = 1;
+float data = 0;
+
+int current_s;
+int remaining_s;
+
 void setup()
 {
   Serial.begin(115200);
@@ -44,6 +53,9 @@ void setup()
   Serial.println();
 
   manager.start();
+
+  pinMode(LED_vcc, OUTPUT);
+  pinMode(LED_gnd, OUTPUT);
 
   Serial.println("WiFi connected");
   Serial.println("IP address: ");
@@ -55,15 +67,27 @@ void setup()
   Serial.println(udp.localPort());
 
   // ARM NTP Update Timer
-  ntpTicker.attach_ms(10*1000, []() {
-    if (isNTPReloaderLocked) {
-      Serial.println("Reloader is LOCKED.");
-      return;
+  // ntpTicker.attach_ms(60*1000, []() {
+  //   if (isNTPReloaderLocked) {
+  //     Serial.println("Reloader is LOCKED.");
+  //     return;
+  //   }
+  //   Serial.println("==================");
+  //   Serial.printf(". SET FLAG @[%lu] .\r\n", millis());
+  //   Serial.println("==================");
+  //   shouldReloadNTPTime = true;
+  // });
+
+  counterDownTicker.attach_ms(1000, []() {
+    if (isNTPReloaderLocked) return;
+    remaining_s--;
+    Serial.printf("REMAINING = %d \r\n", remaining_s);
+
+    if(remaining_s <= 0) {
+      Serial.printf("SHOULD UPDATE NTP TIME @[%lu] .\r\n", millis());
+      shouldReloadNTPTime = true;
+      shouldUploadDataToCloud = true;
     }
-    Serial.println("================");
-    Serial.printf(" . SET FLAG @[%lu] . \r\n", millis());
-    Serial.println("================");
-    shouldReloadNTPTime = true;
   });
 
   delay(2000);
@@ -71,9 +95,18 @@ void setup()
 
 void loop()
 {
+  if (shouldUploadDataToCloud) {
+    Push_data();
+    shouldUploadDataToCloud = false;
+  }
+  
   if (shouldReloadNTPTime) {
     getNTPTask();
   }
+
+  data_sum += analogRead(A0);
+  data_count++;
+  delay(1);
 }
 
 void getNTPTask() {
@@ -116,13 +149,40 @@ void getNTPTask() {
         unsigned long epoch = secsSince1900 - seventyYears;
         // print Unix time:
 
+
+        current_s = epoch%60;
+        remaining_s = 60 - current_s;
+
         Serial.printf("EPOCH = %lu \r\n", epoch);
-        Serial.printf("SECONDS = %lu \r\n", epoch % 60); // print the second
+        Serial.printf("SECONDS = %lu \r\n", current_s); // print the second
+        #ifdef DEVICE1
+          remaining_s = getRemainingS(current_s, 0);
+        #endif
+
+        #ifdef DEVICE2
+          remaining_s = getRemainingS(current_s, 20);
+        #endif
+
+        #ifdef DEVICE3
+          remaining_s = getRemainingS(current_s, 40);
+        #endif
         Serial.println("UNLOCK");
         isNTPReloaderLocked = false;
         break;
       }
   }
+}
+
+int getRemainingS(int current_s, int offset_from_0s) {
+  int ret;
+  if (current_s > offset_from_0s) {
+    ret = 60 - current_s + offset_from_0s;
+  }
+  else {
+    ret = offset_from_0s - current_s;
+  }
+  Serial.printf("REMAINING = %d \r\n", ret);
+  return ret;
 }
 // send an NTP request to the time server at the given address
 unsigned long sendNTPpacket(IPAddress& address)
@@ -147,4 +207,59 @@ unsigned long sendNTPpacket(IPAddress& address)
   udp.beginPacket(address, 123); //NTP requests are to port 123
   udp.write(packetBuffer, NTP_PACKET_SIZE);
   udp.endPacket();
+}
+
+void Push_data () {
+  data = (float)data_sum / (float)data_count;
+  int tmp = data / 10;
+  data = tmp;
+  data /= 10;
+  data_sum = 0;
+  data_count = 0;
+  Serial.println(data);
+  uploadThingsSpeak(data);
+  digitalWrite(LED_vcc, HIGH);
+  delay(3000);
+  digitalWrite(LED_vcc, LOW);
+}
+
+void uploadThingsSpeak(float data) {
+  static const char* host = "api.thingspeak.com";
+  static const char* apiKey = "EDEKTGVXZDFN3DO8";
+
+  // Use WiFiClient class to create TCP connections
+  WiFiClient client;
+  const int httpPort = 80;
+  if (!client.connect(host, httpPort)) {
+    return;
+  }
+
+  // We now create a URI for the request
+  String url = "/update/";
+  //  url += streamId;
+  //-----------------------------------------------
+  url += "?key=";
+  url += apiKey;
+
+#ifdef DEVICE1
+  url += "&field1=";
+  url += data;
+#endif
+
+#ifdef DEVICE2
+  url += "&field2=";
+  url += data;
+#endif
+
+#ifdef DEVICE3
+  url += "&field3=";
+  url += data;
+#endif
+  //---------------------------------------------- -
+
+
+  // This will send the request to the server
+  client.print(String("GET ") + url + " HTTP/1.1\r\n" +
+               "Host: " + host + "\r\n" +
+               "Connection: close\r\n\r\n");
 }

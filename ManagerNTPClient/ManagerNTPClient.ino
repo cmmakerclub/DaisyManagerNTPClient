@@ -3,8 +3,13 @@
 #include <ESP8266WiFi.h>
 #include <WiFiUdp.h>
 #include <Ticker.h>
+#ifdef ESP8266
+  extern "C" {
+  #include "user_interface.h"
+}
+#endif
 
-#define DEVICE1
+#define DEVICE3
 
 /*
  * UDP Header
@@ -46,13 +51,16 @@ float data = 0;
 int current_s;
 int remaining_s;
 
+void init_wifi() {
+  manager.start();
+}
+
 void setup()
 {
   Serial.begin(115200);
   Serial.println();
   Serial.println();
-
-  manager.start();
+  init_wifi();
 
   pinMode(LED_vcc, OUTPUT);
   pinMode(LED_gnd, OUTPUT);
@@ -66,22 +74,19 @@ void setup()
   Serial.print("Local port: ");
   Serial.println(udp.localPort());
 
-  // ARM NTP Update Timer
-  // ntpTicker.attach_ms(60*1000, []() {
-  //   if (isNTPReloaderLocked) {
-  //     Serial.println("Reloader is LOCKED.");
-  //     return;
-  //   }
-  //   Serial.println("==================");
-  //   Serial.printf(". SET FLAG @[%lu] .\r\n", millis());
-  //   Serial.println("==================");
-  //   shouldReloadNTPTime = true;
-  // });
-
   counterDownTicker.attach_ms(1000, []() {
     if (isNTPReloaderLocked) return;
     remaining_s--;
     Serial.printf("REMAINING = %d \r\n", remaining_s);
+    // Serial.printf(" WiFi.isConnected(): %d\r\n", WiFi.isConnected());
+    // Serial.printf("Connection status: %d\n", WiFi.status());
+    // struct station_config conf;
+    // wifi_station_get_config(&conf);
+
+    // String ssid = String(reinterpret_cast<char*>(conf.ssid));
+    // String password = String(reinterpret_cast<char*>(conf.password));
+    // Serial.println(ssid);
+    // Serial.println(password);
 
     if(remaining_s <= 0) {
       Serial.printf("SHOULD UPDATE NTP TIME @[%lu] .\r\n", millis());
@@ -95,18 +100,19 @@ void setup()
 
 void loop()
 {
+  yield();
   if (shouldUploadDataToCloud) {
-    Push_data();
     shouldUploadDataToCloud = false;
+    Push_data();
   }
-  
+
   if (shouldReloadNTPTime) {
     getNTPTask();
   }
 
   data_sum += analogRead(A0);
   data_count++;
-  delay(1);
+  delay(100);
 }
 
 void getNTPTask() {
@@ -124,7 +130,7 @@ void getNTPTask() {
     int cb = udp.parsePacket();
     if (!cb) {
       Serial.printf("[%lu] no packet yet\r\n", counter++);
-      if (counter > 100) {
+      if (counter > 40) {
         ESP.reset();
       }
     }
@@ -148,7 +154,6 @@ void getNTPTask() {
         // subtract seventy years:
         unsigned long epoch = secsSince1900 - seventyYears;
         // print Unix time:
-
 
         current_s = epoch%60;
         remaining_s = 60 - current_s;
@@ -210,17 +215,19 @@ unsigned long sendNTPpacket(IPAddress& address)
 }
 
 void Push_data () {
+  isNTPReloaderLocked = true;
   data = (float)data_sum / (float)data_count;
   int tmp = data / 10;
   data = tmp;
   data /= 10;
   data_sum = 0;
   data_count = 0;
-  Serial.println(data);
+  Serial.printf("DATA = %s \r\n", String(data).c_str());
   uploadThingsSpeak(data);
   digitalWrite(LED_vcc, HIGH);
   delay(3000);
   digitalWrite(LED_vcc, LOW);
+  isNTPReloaderLocked = false;
 }
 
 void uploadThingsSpeak(float data) {

@@ -3,13 +3,9 @@
 #include <ESP8266WiFi.h>
 #include <WiFiUdp.h>
 #include <Ticker.h>
-#ifdef ESP8266
-  extern "C" {
-  #include "user_interface.h"
-}
-#endif
+#include <ESP8266HTTPClient.h>
 
-#define DEVICE3
+#define __DEVICE__ID 1
 
 /*
  * UDP Header
@@ -37,6 +33,8 @@ byte packetBuffer[ NTP_PACKET_SIZE]; //buffer to hold incoming and outgoing pack
 // A UDP instance to let us send and receive packets over UDP
 WiFiUDP udp;
 
+#define WAIT_NTP_IN_SECOND 3
+
 /*
 * CURRENT
 */
@@ -47,6 +45,7 @@ WiFiUDP udp;
 uint32_t data_sum = 1;
 uint32_t data_count = 1;
 float data = 0;
+uint16_t analogValue;
 
 int current_s;
 int remaining_s;
@@ -100,7 +99,6 @@ void setup()
 
 void loop()
 {
-  yield();
   if (shouldUploadDataToCloud) {
     shouldUploadDataToCloud = false;
     Push_data();
@@ -110,8 +108,11 @@ void loop()
     getNTPTask();
   }
 
-  data_sum += analogRead(A0);
+  analogValue = analogRead(A0);
+  data_sum += analogValue;
   data_count++;
+  Serial.print("A0 = ");
+  Serial.println(analogValue);
   delay(100);
 }
 
@@ -125,7 +126,7 @@ void getNTPTask() {
   while (true) {
     sendNTPpacket(timeServerIP); // send an NTP packet to a time server
     // wait to see if a reply is available
-    delay(3000);
+    delay(WAIT_NTP_IN_SECOND*1000);
 
     int cb = udp.parsePacket();
     if (!cb) {
@@ -160,17 +161,11 @@ void getNTPTask() {
 
         Serial.printf("EPOCH = %lu \r\n", epoch);
         Serial.printf("SECONDS = %lu \r\n", current_s); // print the second
-        #ifdef DEVICE1
-          remaining_s = getRemainingS(current_s, 0);
-        #endif
 
-        #ifdef DEVICE2
-          remaining_s = getRemainingS(current_s, 20);
-        #endif
-
-        #ifdef DEVICE3
-          remaining_s = getRemainingS(current_s, 40);
-        #endif
+        // 0
+        // 20
+        // 40
+        remaining_s = getRemainingS(current_s, 20 * (__DEVICE__ID-1));
         Serial.println("UNLOCK");
         isNTPReloaderLocked = false;
         break;
@@ -186,6 +181,7 @@ int getRemainingS(int current_s, int offset_from_0s) {
   else {
     ret = offset_from_0s - current_s;
   }
+  ret -= WAIT_NTP_IN_SECOND;
   Serial.printf("REMAINING = %d \r\n", ret);
   return ret;
 }
@@ -217,9 +213,9 @@ unsigned long sendNTPpacket(IPAddress& address)
 void Push_data () {
   isNTPReloaderLocked = true;
   data = (float)data_sum / (float)data_count;
-  int tmp = data / 10;
+  int tmp = data /10.0;
   data = tmp;
-  data /= 10;
+  data /= 10.0;
   data_sum = 0;
   data_count = 0;
   Serial.printf("DATA = %s \r\n", String(data).c_str());
@@ -231,42 +227,36 @@ void Push_data () {
 }
 
 void uploadThingsSpeak(float data) {
-  static const char* host = "api.thingspeak.com";
-  static const char* apiKey = "EDEKTGVXZDFN3DO8";
-
-  // Use WiFiClient class to create TCP connections
-  WiFiClient client;
-  const int httpPort = 80;
-  if (!client.connect(host, httpPort)) {
-    return;
-  }
+  static const String host = "http://api.thingspeak.com";
+  static const String apiKey = "EDEKTGVXZDFN3DO8";
 
   // We now create a URI for the request
-  String url = "/update/";
+  String url = host+ String("/update");
   //  url += streamId;
   //-----------------------------------------------
   url += "?key=";
   url += apiKey;
 
-#ifdef DEVICE1
-  url += "&field1=";
+  url += "&field";
+  url += __DEVICE__ID;
+  url += "=";
   url += data;
-#endif
-
-#ifdef DEVICE2
-  url += "&field2=";
-  url += data;
-#endif
-
-#ifdef DEVICE3
-  url += "&field3=";
-  url += data;
-#endif
   //---------------------------------------------- -
+  HTTPClient http;
+  Serial.print("[HTTP] begin...\n");
+  http.begin(url); //HTTP
+  int httpCode = http.GET();
+  if(httpCode > 0) {
+      // HTTP header has been send and Server response header has been handled
+      Serial.printf("[HTTP] GET... code: %d\n", httpCode);
+      // file found at server
+      if(httpCode == HTTP_CODE_OK) {
+          String payload = http.getString();
+          Serial.println(payload);
+      }
+  } else {
+      Serial.printf("[HTTP] GET... failed, error: %s\n", http.errorToString(httpCode).c_str());
+  }
 
-
-  // This will send the request to the server
-  client.print(String("GET ") + url + " HTTP/1.1\r\n" +
-               "Host: " + host + "\r\n" +
-               "Connection: close\r\n\r\n");
+  http.end();
 }

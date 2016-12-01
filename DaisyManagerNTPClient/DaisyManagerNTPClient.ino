@@ -5,7 +5,7 @@
 #include <Ticker.h>
 #include <ESP8266HTTPClient.h>
 
-#define __DEVICE__ID 1
+#define __DEVICE__ID 2
 
 /*
  * UDP Header
@@ -77,16 +77,6 @@ void setup()
     if (isNTPReloaderLocked) return;
     remaining_s--;
     Serial.printf("REMAINING = %d \r\n", remaining_s);
-    // Serial.printf(" WiFi.isConnected(): %d\r\n", WiFi.isConnected());
-    // Serial.printf("Connection status: %d\n", WiFi.status());
-    // struct station_config conf;
-    // wifi_station_get_config(&conf);
-
-    // String ssid = String(reinterpret_cast<char*>(conf.ssid));
-    // String password = String(reinterpret_cast<char*>(conf.password));
-    // Serial.println(ssid);
-    // Serial.println(password);
-
     if(remaining_s <= 0) {
       Serial.printf("SHOULD UPDATE NTP TIME @[%lu] .\r\n", millis());
       shouldReloadNTPTime = true;

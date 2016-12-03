@@ -5,7 +5,7 @@
 #include <Ticker.h>
 #include <ESP8266HTTPClient.h>
 
-#define __DEVICE__ID 2
+#define __DEVICE__ID 1
 
 /*
  * UDP Header
@@ -59,8 +59,10 @@ void setup()
   Serial.begin(115200);
   Serial.println();
   Serial.println();
-  init_wifi();
+  Serial.print("DEVICE_ID: ");
+  Serial.println(__DEVICE__ID);
 
+  init_wifi();
   pinMode(LED_vcc, OUTPUT);
   pinMode(LED_gnd, OUTPUT);
 
@@ -155,7 +157,8 @@ void getNTPTask() {
         // 0
         // 20
         // 40
-        remaining_s = getRemainingS(current_s, 20 * (__DEVICE__ID-1));
+        Serial.println(20 * (__DEVICE__ID-1));
+        remaining_s = getRemainingS(current_s,  20 * (__DEVICE__ID-1));
         Serial.println("UNLOCK");
         isNTPReloaderLocked = false;
         break;
@@ -227,26 +230,29 @@ void uploadThingsSpeak(float data) {
   url += "?key=";
   url += apiKey;
 
-  url += "&field";
-  url += __DEVICE__ID;
+  url += String("&field");
+  url += String(__DEVICE__ID);
   url += "=";
   url += data;
   //---------------------------------------------- -
   HTTPClient http;
-  Serial.print("[HTTP] begin...\n");
-  http.begin(url); //HTTP
-  int httpCode = http.GET();
-  if(httpCode > 0) {
-      // HTTP header has been send and Server response header has been handled
-      Serial.printf("[HTTP] GET... code: %d\n", httpCode);
-      // file found at server
-      if(httpCode == HTTP_CODE_OK) {
-          String payload = http.getString();
-          Serial.println(payload);
-      }
-  } else {
-      Serial.printf("[HTTP] GET... failed, error: %s\n", http.errorToString(httpCode).c_str());
+  Serial.print("[HTTP] begin... ");
+  Serial.println(url);
+  while(true) {
+    http.begin(url); //HTTP
+    int httpCode = http.GET();
+    if(httpCode > 0) {
+        // HTTP header has been send and Server response header has been handled
+        Serial.printf("[HTTP] GET... code: %d\n", httpCode);
+        // file found at server
+        if(httpCode == HTTP_CODE_OK) {
+            String payload = http.getString();
+            Serial.println(payload);
+            break;
+        }
+    } else {
+        Serial.printf("[HTTP] GET... failed, error: %s\n", http.errorToString(httpCode).c_str());
+    }
+    http.end();
   }
-
-  http.end();
 }
